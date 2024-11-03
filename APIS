@@ -1,0 +1,62 @@
+// index con las APIS
+export { uploadCsvToDb } from './uploadCsv';
+export { exportDbToCsv } from './exportDb';
+
+
+const express = require('express');
+const { Pool } = require('pg');
+const csvParser = require('csv-parser');
+const fs = require('fs');
+const fastcsv = require('fast-csv');
+
+const app = express();
+const port = 3000;
+
+// Configuración de conexión con PostgreSQL
+const pool = new Pool({
+user: 'postgres',
+host: 'localhost',
+database: 'recursos_humanos',
+password: 'utm123',
+port: 5432,
+});
+
+// Endpoint para cargar datos desde un archivo CSV a la tabla `employees`
+app.post('/upload-csv-to-db', (req, res) => {
+    const filePath = './archivo.csv';
+   // const filePath = 'ruta/al/archivo.csv';
+    const stream = fs.createReadStream(filePath)
+    .pipe(csvParser())
+    .on('data', async (row) => {
+        const { first_name, last_name, email, phone_number, hire_date, job_id, salary, commission_pct, manager_id, department_id } = row;
+        const query = `INSERT INTO employees (first_name, last_name, email, phone_number, hire_date, job_id, salary, commission_pct, manager_id, department_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`;
+        const values = [first_name, last_name, email, phone_number, hire_date, job_id, salary, commission_pct, manager_id, department_id];
+        try { await pool.query(query, values); } catch (error) { console.error('Error al insertar fila:', error); }
+    })
+    .on('end', () => { res.send('Archivo CSV cargado exitosamente en la base de datos.'); })
+    .on('error', (error) => { console.error('Error al leer archivo CSV:', error); res.status(500).send('Error al leer el archivo CSV.'); });
+});
+
+// Endpoint para exportar datos de la tabla `employees` a un archivo CSV
+
+app.get('/export-db-to-csv', (req, res) => {
+  const query = 'SELECT * FROM employees';
+    const filePath = 'ruta/al/archivo_exportado.csv';
+    pool.query(query, (error, results) => {
+    if (error) {
+        console.error('Error al consultar la base de datos:', error);
+        res.status(500).send('Error al consultar la base de datos.');
+        return;
+    }
+    const csvStream = fastcsv.write(results.rows, { headers: true });
+    const writableStream = fs.createWriteStream(filePath);
+    writableStream.on('finish', () => {
+        res.download(filePath, 'employees_export.csv', (err) => {
+        if (err) { console.error('Error al descargar el archivo:', err); }
+        });
+    });
+    csvStream.pipe(writableStream);
+    });
+});
+
+app.listen(port, () => { console.log(`Servidor corriendo en http://localhost:${port}`); });
